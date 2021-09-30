@@ -1,0 +1,89 @@
+---
+title: "Diversity analysis"
+author: "ISME Latin America"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: 
+    fig_height: 8
+    fig_width: 13
+    number_section: no
+    theme: paper
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+# `phyloseq` and diversity analysis introduction
+
+## Packages needed
+
+First, we'll make vectors with the names of the necessary packages.
+```{r}
+#the packages immediately available in CRAN
+cran_packages <- c("bookdown", "knitr", "tidyverse", "plyr", "grid", "gridExtra", "kableExtra", "xtable", "ggpubr")
+#the ones that use Bioconductor
+bioc_packages <- c("phyloseq", "dada2", "DECIPHER", "phangorn", "ggpubr", "BiocManager","DESeq2", "microbiome", "philr")
+#packages that are still in GitHub
+git_source <- c("twbattaglia/btools", "gmteunisse/Fantaxtic", "MadsAlbertsen/ampvis2", "opisthokonta/tsnemicrobiota")# fuente/nombre del paquete
+git_packages <- c("btools", "fantaxtic", "ampvis2", "tsnemicrobiota") # nombre del paquete
+```
+Now we install the packages.
+JUST RUN IT ONCE, AFTER DOWNLOADING, DON'T EXECUTE AGAIN.
+```
+# CRAN
+.inst <- cran_packages %in% installed.packages()#The %in% operator in R can be used to identify if an element (e.g., a number) belongs to a vector or dataframe
+if(any(!.inst)) {
+  install.packages(cran_packages[!.inst])
+}
+#BioConductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+.inst <- bioc_packages %in% installed.packages()
+if(any(!.inst)) {
+  BiocManager::install(bioc_packages[!.inst])
+}
+#GitHub
+.inst <- git_source %in% installed.packages()
+if(any(!.inst)) {
+  devtools::install_github(git_source[!.inst])
+}
+```
+Now let's load the packages.
+```{r, warning=FALSE, message=FALSE}
+sapply(c(cran_packages, bioc_packages, git_packages), require, character.only = TRUE)#had a little trouble with phlir
+```
+
+## What can we do with `phyloseq`
+`Phyloseq`is a package from Bioconductor for analysis and manipulation of metagenomic data obtained from high yield sequencing. It allows us to save, import, analyze and visualize the sequencing data after being processed in the first place as in obtaining the ASVs or OTUs, including associated data, associated observation tables of each sample, phylogeny, or taxonomic identification. The objects produced have four components that store the read count, the metadata, taxonomy, and phylogenetic trees. We can see a complete diagram of phyloseq in this image. 
+![](http://www.castrolab.org/isme/biodiversity/images/phyloseq_structure.png)
+## Start working with the data
+
+First, we'll use the `phyloseq`object called ```ps```. If you don't have a ```ps``` object, you can download it from  [here](https://www.dropbox.com/s/df1aie9angv16gk/ps.RDS?dl=0).
+
+```{r}
+psd <- readRDS("C:/Users/fotgo/Downloads/ps.RDS")#CHANGE ME to directory with the object
+psd
+```
+
+# Quality control of 16S analysis
+
+We check for the prevalence of the taxonomic features.
+
+We create a data frame with the prevalence values, then we add the taxonomy and we graph.
+```{r}
+prevdf <- apply(X = otu_table(psd),#the otu table from the psd object
+               MARGIN = ifelse(taxa_are_rows(psd), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})#gives the prevalence of the otu table
+
+prevdf <- data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(psd),
+                    tax_table(psd))#creates the object with the prevalence of the otu table and the taxa names of each one, also de abundance
+
+plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))}) -> dfprev #subsets the data from the data frame that was previously created and shows the phylum and the mean of the prevalence and the sum of said prevalence
+kable(dfprev)#puts the data in a more attractive table
+```
+
