@@ -6,7 +6,7 @@ output:
   html_document: 
     fig_height: 8
     fig_width: 13
-    number_section: no
+    number_section: yes
     theme: paper
     toc: yes
     toc_float:
@@ -54,18 +54,19 @@ if(any(!.inst)) {
 ```
 Now let's load the packages.
 ```{r, warning=FALSE, message=FALSE}
-sapply(c(cran_packages, bioc_packages, git_packages), require, character.only = TRUE)#had a little trouble with phlir
+sapply(c(cran_packages, bioc_packages, git_packages), require, character.only = TRUE) #had a little trouble with phlir
 ```
 
 ## What can we do with `phyloseq`
-`Phyloseq`is a package from Bioconductor for analysis and manipulation of metagenomic data obtained from high yield sequencing. It allows us to save, import, analyze and visualize the sequencing data after being processed in the first place as in obtaining the ASVs or OTUs, including associated data, associated observation tables of each sample, phylogeny, or taxonomic identification. The objects produced have four components that store the read count, the metadata, taxonomy, and phylogenetic trees. We can see a complete diagram of phyloseq in this image. 
+`Phyloseq`is a package from Bioconductor for analysis and manipulation of metagenomic data obtained from high yield sequencing. It allows us to save, import, analyze and visualize the sequencing data after being processed in the first place as in obtaining the ASVs or OTUs, including associated data, associated observation tables of each sample, phylogeny, or taxonomic identification. The objects produced have four components that store the read count, the metadata, taxonomy, and phylogenetic trees. We can see a complete diagram of `phyloseq` in this image. 
 ![](http://www.castrolab.org/isme/biodiversity/images/phyloseq_structure.png)
+
 ## Start working with the data
 
 First, we'll use the `phyloseq`object called ```ps```. If you don't have a ```ps``` object, you can download it from  [here](https://www.dropbox.com/s/df1aie9angv16gk/ps.RDS?dl=0).
 
 ```{r}
-psd <- readRDS("C:/Users/fotgo/Downloads/ps.RDS")#CHANGE ME to directory with the object
+psd <- readRDS("C:/Users/fotgo/Downloads/ps.RDS") #CHANGE ME to directory with the object
 psd
 ```
 
@@ -86,4 +87,134 @@ prevdf <- data.frame(Prevalence = prevdf,
 plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))}) -> dfprev #subsets the data from the data frame that was previously created and shows the phylum and the mean of the prevalence and the sum of said prevalence
 kable(dfprev)#puts the data in a more attractive table
 ```
+
+
+We can extract some information directly from the table, so we may start interpreting a little. In first place, there are some phylum more represented than others. The column **1** has the mean of the read count, while the column **2** has the sum of these. Some phylum are represented by just one read, so we'll remove the less represented phylums as to avoid false positives.
+
+## Filter the undesired taxa
+```{r}
+# Here we define which taxa we're going to take out, they are completely arbitrary
+filterPhyla <- c("BRC1", "Deinococcus-Thermus", "Gemmatimonadetes", "Kiritimatiellaeota", "Nanoarchaeaeota", "Ochrophyta", "Schekmanbacteria", "Ciliophora", "Spirochaetes", NA)
+
+# The actual filter
+(psd1 <- subset_taxa(psd, !Phylum %in% filterPhyla))
+
+# We also filter reads that correspond to thins that aren't microorganisms
+
+filterPhyla2 <- c("Chloroplast", "Mitochondria", "Eukaryota")
+psd1 <- subset_taxa(psd1, !Kingdom %in% filterPhyla2)
+psd1 <- subset_taxa(psd1, !Phylum %in% filterPhyla2)
+psd1 <- subset_taxa(psd1, !Class %in% filterPhyla2)
+psd1 <- subset_taxa(psd1, !Order %in% filterPhyla2)
+psd1 <- subset_taxa(psd1, !Family %in% filterPhyla2)
+psd1 <- subset_taxa(psd1, !Genus %in% filterPhyla2)
+```
+
+We can also make other types of sub-setting the data. We can filter based on the mean read counts, with their distribution, and filtering samples with a low number of minimum reads.
+
+```{r}
+# Filtered based on an arbitrary threshold of the mean read count, in this case we select 1e-5
+psd2 <- filter_taxa(psd1, function(x) mean(x) > 1e-5, TRUE)
+
+# We can also remove those thaxa that are not observed an X amount of times at least in 10% of the samples
+psd3 <- filter_taxa(psd2, function(x) sum(x > 2) > (0.1*length(x)), TRUE)
+
+# Finally, we can filter samples with less of an arbitrary number, in this case 1000 reads
+psd4 <- prune_samples(sample_sums(psd3) > 1000, psd3)
+
+psd4
+```
+
+Now, we can filter even more if we desire. The next filter is based on a threshold and then visualizing the effect graphically. 
+```{r}
+# Selecting taxa
+prevdf1 <- subset(prevdf, Phylum %in% get_taxa_unique(psd4, "Phylum"))
+ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(psd),color=Phylum)) +
+# A line for it to be clearer
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none")
+```
+```{R}
+# We define the prevalence threshold at 5%
+prevalenceThreshold <- 0.05 * nsamples(psd4)
+```
+```{R}
+# Execute prevalence filter, using `prune_taxa()` function
+keepTaxa <- rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+psd5 <- prune_taxa(keepTaxa, psd4)
+```
+
+While we use ``DADA2```, the taxa sequence or ASV is determined, but in this case we'll just work at community level. For this purpose the names will be changed with correlative codes for better understanding down the line.
+
+```{r}
+# Change the sequences for a generic name
+taxa_names(psd5) <- paste0("ASV", seq(ntaxa(psd5)))
+```
+
+Now that the reads have been filtered, our `phyloseq` object is ready for use and can be visualized. First we'll graph the read counts by sample so that we can have an idea of their distribution.
+
+```{r}
+#make a data frame with the sums of the read counts
+sample_sum_df <- data.frame(sum <- sample_sums(psd5))
+
+#graph
+ggplot(sample_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "grey", binwidth = 2500) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank()) 
+```
+
+Finally, we calculate the rarefaction curve for each sample, so that we can determine if the sequencing was enough or if more sequencing is needed. This analysis let us estimate if we could find more OTUs or ASVs if more sequencing is done.
+
+```{r, warning=FALSE, message=FALSE}
+# Loading some previously done scripts
+scripts <- c("graphical_methods.R",
+             "tree_methods.R",
+             "plot_merged_trees.R",
+             "specificity_methods.R",
+             "ternary_plot.R",
+             "richness.R",
+             "edgePCA.R",
+             "copy_number_correction.R",
+             "import_frogs.R",
+             "prevalence.R",
+             "compute_niche.R")
+urls <- paste0("https://raw.githubusercontent.com/mahendra-mariadassou/phyloseq-extended/master/R/", scripts)
+
+for (url in urls) {
+  source(url)
+}
+```
+
+Now we graph.
+
+```{r, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
+p <- ggrare(psd5, step = 100, color = "species", label = "sample_ID", se = TRUE)
+```
+```{r, warning=FALSE, message=FALSE}
+(p <- p + facet_wrap(~species))+theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(colour = "black"))
+```
+
+
+The graphs are separated by species, in this case they are different whale species; *Balaenoptera musculus*, *Balaenoptera physalus*, *Eubalaena australis*, and *Megaptera novaeangliae*. The samples show the number of taxa according to the sampling size or number of reads. *Balaenoptera musculus*' samples as well as *Megaptera novaeangliae*'s show the desired plateau, meaning more sequencing is not really needed. On the other hand, *Balaenoptera physalus*'s samples do not reach the expected plateau, so more sequencing may yield OTUs/ASVs that do not show in this samples, so the alpha diversity is underestimated.
+
+# Structure and manipulation of a `phyloseq`object
+
+
+
+
+
+
+
+
+
+
+
 
