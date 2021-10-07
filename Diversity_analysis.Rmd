@@ -207,13 +207,42 @@ The graphs are separated by species, in this case they are different whale speci
 
 # Structure and manipulation of a `phyloseq`object
 
+Some times we want to analyse a subset of the samples in our `phyloseq`object, or rather, we want to select certain taxonomic groups for future analysis. `phyloseq`allows us to make a variety of filters in order to do so. We'll first visualize the table with the information from our `phyloseq`object.
 
+```{r}
+#read count table
+kable(head(otu_table(psd5)), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "300px")
+```
 
+The OTU table shows the relationship of the name of the taxa with the samples and the mapped reads against said reads. Here the read count is directly proportional to the number of times a taxon is observed. 
+We'll see now the taxonomy table.
 
+```{r}
+#taxonomy table
+kable(head(tax_table(psd5)), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "300px")
+```
 
+The tax table shows the relationship between the taxa and their taxonomic lineage, i.e., it links a sequence variance, or ASV, with the taxonomic levels from kingdom all the way to genus or species, depending on the resolution level of the analysis.
+Now we'll visualize metadata from our object.
 
+```{r}
+#metadata table
+kable(head(sample_data(psd5)), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "300px")
+```
 
+Finally, in this case the `phyloseq`object includes a phylogenetic tree. This tree shows the evolutionary relationships among the samples' taxa. It may not always be present since when sequencing a universal probe may be absent, so there is no phylogeny.
+Now we plot the tree.
 
+```{r}
+# tree from our  phyloseq object
+plot_tree(psd5, method = "treeonly", ladderize = "left")
+```
 
 
 
