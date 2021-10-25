@@ -32,7 +32,8 @@ git_source <- c("twbattaglia/btools", "gmteunisse/Fantaxtic", "MadsAlbertsen/amp
 git_packages <- c("btools", "fantaxtic", "ampvis2", "tsnemicrobiota") # nombre del paquete
 ```
 Now we install the packages.
-JUST RUN IT ONCE, AFTER DOWNLOADING, DON'T EXECUTE AGAIN.
+
+**NOTE: JUST RUN IT ONCE, AFTER DOWNLOADING, DON'T EXECUTE AGAIN.**
 ```
 # CRAN
 .inst <- cran_packages %in% installed.packages()#The %in% operator in R can be used to identify if an element (e.g., a number) belongs to a vector or dataframe
@@ -67,6 +68,7 @@ First, we'll use the `phyloseq`object called ```ps```. If you don't have a ```ps
 
 ```{r}
 psd <- readRDS("C:/Users/fotgo/Downloads/ps.RDS") #CHANGE ME to directory with the object
+#this time it is a readRDS 'cause of the nature of the object
 psd
 ```
 
@@ -100,6 +102,7 @@ filterPhyla <- c("BRC1", "Deinococcus-Thermus", "Gemmatimonadetes", "Kiritimatie
 (psd1 <- subset_taxa(psd, !Phylum %in% filterPhyla))
 
 # We also filter reads that correspond to thins that aren't microorganisms
+# next we just filter using a specialized function
 
 filterPhyla2 <- c("Chloroplast", "Mitochondria", "Eukaryota")
 psd1 <- subset_taxa(psd1, !Kingdom %in% filterPhyla2)
@@ -137,7 +140,7 @@ ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(psd),color=Phylum)) +
 ```
 ```{R}
 # We define the prevalence threshold at 5%
-prevalenceThreshold <- 0.05 * nsamples(psd4)
+prevalenceThreshold <- 0.05 * nsamples(psd4)#nsamples gets the number of the samples
 ```
 ```{R}
 # Execute prevalence filter, using `prune_taxa()` function
@@ -192,8 +195,10 @@ Now we graph.
 
 ```{r, warning=FALSE, message=FALSE, results='hide', fig.show='hide'}
 p <- ggrare(psd5, step = 100, color = "species", label = "sample_ID", se = TRUE)
+#ggrare makes a rarefaction curve using ggplot2
 ```
 ```{r, warning=FALSE, message=FALSE}
+#nice graph, just separates by species
 (p <- p + facet_wrap(~species))+theme(
     panel.border = element_blank(),
     panel.grid.major = element_blank(),
@@ -231,7 +236,8 @@ Now we'll visualize metadata from our object.
 
 ```{r}
 #metadata table
-kable(head(sample_data(psd5)), "html") %>%
+kk<-data.frame(head(sample_data(psd5)))
+kable(kk, "html") %>%
     kable_styling() %>%
     scroll_box(width = "800px", height = "300px")
 ```
@@ -244,6 +250,262 @@ Now we plot the tree.
 plot_tree(psd5, method = "treeonly", ladderize = "left")
 ```
 
+Other packages make use of the `phyloseq`objects, such as `microbiome`and àmpvis`. To see the global data of our object, we can do the following.
 
+```{r}
+summarize_phyloseq(psd5)
+```
 
+The previous command also shows the minimum and the maximum reads, the total and the means of said reads as well as other information such as the names of our columns in the metadata table. For now, we can also visualize a mix in which the taxonomy and the taxon abundance for each sample is showed.
+
+```{r}
+df<- psmelt(psd5)
+#psmelt is a function for phyloseq objects and is usually used for graphs. It is dependent of melt and merge functions
+kable(head(df), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "300px")
+```
+
+In order to have a visual representation of the sample distribution, we can graph, for example, in this case based upon the geographic locations that are stored in the metadata for each of the species.
+
+```{r}
+res<- plot_frequencies(sample_data(psd5), "geo_loc_name", "species")#the plot frequency function must be given a factor, which i taken from the sample_data, so there is more information in the plot than just the plot itself and its parameters
+#obviously, the distribution can only be made with the data within the object, in this case the location was saved as "geo_loc_name" and the species in the columns with the same name
+res
+```
+```{r}
+#just a table with the infromation within the "res" object that we made
+kable(res$data[-length(res$data)], "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "300px")
+```
+
+Now, one more time we can subset the information within the `phyloseq` object with a series of functions, such as `fiter`,`subset`, and `prune`. We've filtered our data before using the function `filter_data` on the object `psd5`; this returned the mean of the read counts for each taxa and if it yielded a value less than 1e-5, it was eliminated from the object. Now we'll see another way of filtering based on the abundance.
+
+First we'll transform the relative abundance and then filter them.
+```{r}
+#transform the reads into percentages
+psd5r<-transform_sample_counts(psd5,function(x) x / sum (x))#transforms the reads from an abundance matrix based on a user-defined function. Each read count is transformed individually
+
+#filter the taxa that have an abundance below 1%
+(psd5r.filtered<-filter_taxa(psd5r, function(x) sum(x) > 1, TRUE))#analogous to .genefilter . It returns a logical vectorif the OTUs passed the criteria or not
+```
+
+So, how many taxa remain in the `phyloseq`object? After pruning our samples, we see the abundance is very low, therefore a lot of taxa are eliminated.
+
+Now, we'll do the filtering as if we are trying to filter based on specific taxa.
+```{r}
+#visualize the remaining taxa
+tax_table(psd5r.filtered)
+
+#filtering on the genus "Moraxella"
+(subset_taxa(psd5r.filtered, Genus=="Moraxella")->psd5r.filtered.moraxella)
+
+#we can also filtered everything except for the Moraxella
+(subset_taxa(psd5r.filtered, Genus!="Moraxella")->psd5r.filtered.Nomoraxella)
+```
+
+Another way of filtering a `phyloseq`object is filtering based on an attribute within the `sample_data`. For example, with these precise data, we could study the microbiome of each whale by separate. We would create 3 `phyloseq` objects from the original `psd5`object.
+
+```{r}
+#Balaenoptera musculus
+(psd5.blue <- subset_samples(psd5, species == "Balaenoptera musculus"))
+
+#Balaenoptera physalus
+(psd5.fin <- subset_samples(psd5, species == "Balaenoptera physalus"))
+
+#Megaptera novaeangliae
+(psd5.joro <- subset_samples(psd5, species == "Megaptera novaeangliae"))
+```
+
+Alternatively, we could study just 3 out of the 4 whale species that are originally in the `psd5` object.
+
+```{r}
+psd5 <- subset_samples(subset_samples(psd5, species != "Eubalaena australis"))
+```
+
+The function `prune_samples`is also largely used since it allows for the use of a vector with the reads we wish to keep (similarly to `subset_samples`) or a logical vector in which the samples we want to keep are True.
+
+```{r}
+# Select only the genus _Moraxella_
+subset_taxa(psd5, Genus=="Moraxella") -> psd5.moraxella
+
+#We keep only the samples that comply with the condition, meaning the abundance of _Moraxella_ of more tha 5 reads in this case
+prune_samples(sample_sums(psd5.moraxella)>=5, psd5.moraxella) -> psd5.moraxella
+
+# Visualizing the data in a phylogenetic tree
+plot_tree(psd5.moraxella, color="species", shape="Family", label.tips="Genus", size="abundance")
+```
+We can immediately realize that *Moraxella* is mostly distributed within the *Megaptera novaeangliae* when compared with the other 2 whale species.
+
+Other thing that can is usually done is removing contaminants or undesired taxa. This can be easily done with the function `prune_taxa`.
+
+```{r}
+# Defining the undesired taxa
+badTaxa <- c("ASV134", "ASV104", "ASV68")
+
+# Create a list with all the names of the taxa within the object psd5
+allTaxa <- taxa_names(psd5)
+
+# Keep the difference in taxa between badTaxa and allTaxa 
+keepTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+
+#Actually pruning the taxa
+(psd5.prune <- prune_taxa(keepTaxa, psd5))
+```
+
+Finally, other useful functions in the `phyloseq` package are `tax_gloom` and `tip_gloom`. Both functions groups the objectd based on a certain property. For example, it is highly probable that one encounters ASVs from the same genus even though they might be slightly different. We hace already done this when filtering based on the *Moraxella* genus. The resulting object had 8 taxa, all of them belonging ro *Moraxella*.
+
+In order to visualize and analyse the data it is often convenient collpasinf or grouping the sequences of the same genus or any other taxonomic level. Also, `tip_gloom` makes something similar but based on an arbitrary *height* in the phylogenetic tree.
+
+```{r}
+# Group by genus
+psd5.genus <- tax_glom(psd5, "Genus", NArm = FALSE)
+# group by phylogentic tree height
+h1 <- 0.4
+psd5.tip <- tip_glom(psd5, h = h1)
+# Graph the comparison in order to see the differences 
+multiPlotTitleTextSize <- 15
+p2tree <- plot_tree(psd5, method = "treeonly",
+                   ladderize = "left",
+                   title = "Without grouping") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+p3tree <- plot_tree(psd5.genus, method = "treeonly",
+                   ladderize = "left", title = "Genus level") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+p4tree <- plot_tree(psd5.tip, method = "treeonly",
+                   ladderize = "left", title = "By height") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+
+# Graph all trees together
+grid.arrange(nrow = 1, p2tree, p3tree, p4tree)
+```
+
+# Indtroduction to diversity analysis
+
+In community studies, the concept of biodiversity is that of the communities' ecology in which we are interested in the species richness (number of different species in a community/ alpha diversity), the differences and similarities between communities (beta diversity), and in some cases, the total diversity from a region or ecological landscape (gamma diversity).
+
+![](http://www.castrolab.org/isme/biodiversity/images/diversidad.png)
+
+In the picture above we can observe the bird diversity in two regions, **X** and **Y** spread into four different sites (image taken from the [Community Ecology of Mittelbach](https://global.oup.com/academic/product/community-ecology-9780878935093?cc=cl&lang=en&)). The alpha diversity is bigger in the sites 1 and 3 with 5 total species in each one. The beta diversity indexes the change or turnover of species between the sites. In the figure, the region **Y** has a bigger beta diversity when compared with the **X** region because the turnover between site 2 and 4 is bigger than that of sites 1 and 3 (which have the same 5 species). The gamma diversity index the total diversity in the region, therefore in this example the gamma diversity is bigger in the **Y** region since it has a total of 6 species, compared to the **X** region which has 5 species.
+
+## Richness indexes, uniformity, dominance, and phylogenetic diversity (alpha diversity)
+
+When talking in a metagenomic context, the alpha diversity is determined by a series of measurements that are taken from ecology which allows to to characterize a microbial community. `phyloseq` has a useful function able to to calculate and graph up to seven measures, i.e. Observed (simply the number of taxa), Chao1 (adjusted richness by the probability of not observing the species), ACE (richness that accounts for relative abundance), Shannon (relative abundance of taxa), Simpson (1-the probability of randomly observing two bacteria in a community that belong to different species), Inverse Simpson (1/Simpson), and Fisher (richness accounting the abundance). With `pjyloseq`, we can use the function `plot_richness` in order to see different diversity 
+
+```{r}
+plot_richness(psd5, color = "species", x="species", measures = c("Observed", "Chao1","Shannon")) + geom_boxplot(aes(fill = species), alpha=.7) + scale_color_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f")) + scale_fill_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f"))
+```
+
+In the previous example, we only graphed Observed, Chao1, and Shannon using the argument `measures = c("Observed", "Chao1", "Shannon")`. If we wish to obtain all the measures we can simply omit writing the argument and will show everything by default. 
+
+Now, we'll try to answer if the alpha diversity is significantly different due to the whale species. This can be proved with an ANOVa analysis. For this example we'll be using a diversity index that is not incorporated in `phyloseq`. *Faith's Phylogenetic Diversity* index was introduced by Daniel Faith in 1992; it does not only consider the number of species but also accounts for how much do the species relate phylogentically. The previous statement is relevant since it returns a quick measurement to evaluate the ecosystem's conservation priorities, or if it consists of a microbial community where tere is a bigger chance of finding novel genetic functions.
+
+```{r}
+# Saving a dataframe with the measuremtns of the alpha diveristy
+# Estimate the Faiths phylogenetic diverstiy from an OTU table and phylogenetic tree
+alpha_pd <- estimate_pd(psd5)
+# combine the metadata with alpha.diversity
+data <- cbind(sample_data(psd5), alpha_pd) 
+# Calculate an ANOVA
+psd5.anova <- aov(PD ~ species, data) #apparently there is signifficative difference depending on the species
+# install.packages("xtable")
+library(xtable)
+psd5.anova.table <- xtable(psd5.anova)
+kable((psd5.anova.table), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "150px")
+```
+
+The package `microbiome` easily offers the necessary tools to evaluate diversity through the function `global`.
+
+```{r}
+tab<-global(psd5, index = "all") # Global indicators of the ecoystem state, including richness, evenness, diversity, and other indicators
+kable((head(tab)), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "150px")
+```
+
+Speaking technically, the `global` function returns 26 diversity measurements that help us understand the structure on the microbial communities. In general, this measurements divide into richness, diversity, dominance, rarity, coverage, and uniformity.
+
+The package `microbiome` offers fucntions to calculate each one of the aspects of the microbial community.
+
+```{r}
+# richness
+tab <- richness(psd5)
+tab
+# dominance
+tab <- dominance(psd5, index = "all")
+tab
+# rarity
+tab <- rarity(psd5, index = "all")
+tab
+# coverage
+tab <- coverage(psd5, threshold = 0.5)
+tab
+# inequality
+tab <- inequality(psd5)
+tab
+# uniformity
+tab <- evenness(psd5, "all")
+tab
+```
+
+Lets see an example estimating the diversity, graphing the results, and calculating the statistic significance. For this example, we'll be using the `ggpubr` library, which generates "publication-ready plots", something that is always desirable. 
+
+```{r}
+library(ggpubr)
+
+# We generate a phyloseq object named "object" without taxa that sum up to 0 reads 
+psd5.2 <- prune_taxa(taxa_sums(psd5) > 0, psd5)
+# We calculate the diversity indexes
+tab <- diversities(psd5.2, index = "all")
+# visualize the results
+kable((head(tab)), "html") %>%
+    kable_styling() %>%
+    scroll_box(width = "800px", height = "150px")
+```
+
+Now we extract the metadata.
+
+```{r}
+psd5.2.meta<-meta(psd5.2) #This function retrieves the sample_data as a data.frame
+head(psd5.2.meta)
+```
+
+Now we add the diversity table to the metadata.
+
+```{r}
+psd5.2.meta$Shannon <- tab$diversity_shannon
+psd5.2.meta$InverseSimpson <- tab$diversity_inverse_simpson
+```
+
+In this exercise we are interested in comparing the diversities between whales' species, therefore we need to keep in mind we have the data for 3 whale species: *Megaptera novaeangliae*, *Balaenoptera musculus*, and *Balaenoptera physalus*. We need to create a list of pair comparisons in order to visualize and calculate the statistic significance simultaneously.
+
+```{r}
+# Obtain the varaibles from the phyloseq object
+spps <- levels(psd5.2.meta$species) #provides access to the levels attribute of a variable
+# We create a list of the things we wish to compare
+pares.spps <- combn(seq_along(spps), 2, simplify = FALSE, FUN = function(i)spps[i])
+# function combn: Generate all combinations of the elements of x taken m at a time
+#function seq_along: Generate regular sequences. seq is a standard generic with a default method. seq.int is a primitive which can be much faster but has a few restrictions. seq_along and seq_len are very fast primitives for two common cases.
+
+# See the results
+pares.spps
+```
+
+With the `ggviolin` function we can generate a violin graph in a single step.
+
+```{r}
+p1 <- ggviolin(psd5.2.meta, x = "species", y = "Shannon",
+ add = "boxplot", fill = "species", palette = c("#a6cee3", "#b2df8a", "#fdbf6f"))  
+p1
+```
+
+Now we evaluate the statistic significance between the whales' diversity estimates. Now again, we have the paper-ready figure.
+
+```{r}
+p1 <- p1 + stat_compare_means(comparisons = pares.spps)
+p1
+```
 
