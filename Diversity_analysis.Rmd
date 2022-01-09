@@ -55,7 +55,7 @@ if(any(!.inst)) {
 ```
 Now let's load the packages.
 ```{r, warning=FALSE, message=FALSE}
-sapply(c(cran_packages, bioc_packages, git_packages), require, character.only = TRUE) #had a little trouble with phlir
+sapply(c(cran_packages, bioc_packages, git_packages), require, character.only = TRUE) #had a little trouble with philr
 ```
 
 ## What can we do with `phyloseq`
@@ -420,7 +420,7 @@ kable((psd5.anova.table), "html") %>%
 The package `microbiome` easily offers the necessary tools to evaluate diversity through the function `global`.
 
 ```{r}
-tab<-global(psd5, index = "all") # Global indicators of the ecoystem state, including richness, evenness, diversity, and other indicators
+tab<-global(psd5, index = "all") # Global indicators of the ecosystem state, including richness, evenness, diversity, and other indicators
 kable((head(tab)), "html") %>%
     kable_styling() %>%
     scroll_box(width = "800px", height = "150px")
@@ -508,4 +508,279 @@ Now we evaluate the statistic significance between the whales' diversity estimat
 p1 <- p1 + stat_compare_means(comparisons = pares.spps)
 p1
 ```
+
+## Miltidimentional scaling and Beta diversity (Bray-Curtis, UniFrac, t-SNE)
+
+Referring to beta diversity, we can calculate the global similarity with all or samples of interest or we can also quantify the group¿s divergence and compare it with another group.
+
+We now see it in the example below.
+
+```{r}
+# Calculating the blue whale and humpback's divergence
+# divergence()=Quantify microbiota divergence (heterogeneity) within a given sample set with respect to a reference.
+# abundances()=Retrieves the taxon abundance table from phyloseq-class object and ensures it is systematically returned as taxa x samples matrix.
+
+# NEED TO CHECK WHAT YOU'RE COMPARING AGAINST 
+div.azul <- divergence(subset_samples(psd5, species == "Balaenoptera musculus"), 
+                       abundances(psd5),method = "bray")
+div.joro <- divergence(abundances(subset_samples(psd5, species == "Megaptera novaeangliae")), 
+                       abundances(psd5), method = "bray")
+
+# transforming the data into _dataframes_
+data.frame(div.azul) -> df.div.azul
+data.frame(div.joro) -> df.div.joro
+
+df.div.azul<-as.data.frame(t(df.div.azul))
+df.div.joro<-as.data.frame(t(df.div.joro))
+
+# assign a name to the column
+colnames(df.div.azul)<-"divergence"
+colnames(df.div.joro)<-"divergence"
+
+# Adding columns to the _dataframes_ with the whales' common names
+df.div.azul$species<-"Blue Whale"
+df.div.joro$species<-"Humpback Whale"
+
+# We combine and generate a single dataframe
+rbind(df.div.joro, df.div.azul) -> div.boxplot
+
+#plot and statistical comparisons
+p2 <- ggboxplot(data = div.boxplot, x = "species", y = "divergence", fill = "species", palette = c("#a6cee3", "#fdbf6f"))
+p2 + stat_compare_means(comparisons = list(c("Blue Whale", "Humpback Whale")))
+
+```
+
+There is a wide range of similarity measures (or dissimilarity, i.e., 1-similarity) that allow us to understand the relationships between our samples. Generally speaking, they all calculate comparable distance matrices. The `phyloseq` package offers a great number of distance measurements. The most popular ones are UniFrac and Weighted UniFrac (both of them consider phylogeny) and others independent from phylogeny, such as Jaccard, Manhattan, Euclidean, Bray-Curtis, Canberra, etc. In the other hand, the resulting distance matrix is not used in isolation, but rather conjoined with an ordination or multidimensional scaling tools. Then again, `phyloseq` offers a variety of said tools, including detrended and canonical correspondence analysis, Double Principal Coordinate Analysis, Non-metric MultiDimensional scaling, and MDS/PCoA.
+
+We'll begin by trying to make a PCoA analysis with a distance matrix that accounts for phylogenetic relationships and another one that doesn't. 
+
+```{r}
+# ordination first (summarizes data from the community)
+psd5.mds.unifrac <- ordinate(psd5, method = "MDS", distance = "unifrac") # the method can be changed as well as how is the distance calculated
+evals <- psd5.mds.unifrac$values$Eigenvalues #extracting the eigenvalues from the ordination object
+pord1 <- plot_ordination(psd5, psd5.mds.unifrac, color = "geo_loc_name") + # plot
+  labs(col = "geo_loc_name") +
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+psd5.mds.bray <- ordinate(psd5, method = "MDS", distance = "bray")
+evals <- psd5.mds.bray$values$Eigenvalues
+pord2 <- plot_ordination(psd5, psd5.mds.bray, color = "geo_loc_name") +
+  labs(col = "geo_loc_name") +
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+grid.arrange(pord1, pord2)
+```
+
+Let's note that the dispersion graphs in which the analysis is portrayed are scaled based on the variation each of the axis explain. Generally speaking, these methods try to find the least amount of mathematical vectors that maximize the separation between our samples (the dots in the graphs); this is due to the fact that it is almost impossible to represent visually and effectively multidimensional data. The data we're working with is multidimensional in the sense that we're working with more than a 100 taxa that may also vary simultaneously in each of the more than 90 sample we have. The axis themselves don't add up to the 100% because there are other axis absent in our plot that represent the rest of the variation. When plotting symmetrically, we distort the relationship between the dots, specially when comparing two or more graphs.
+
+With microbial communities, the double principal coordinate analysis (DPCoA) is rather appropriate since it analyzes two data types at the same time: a similarity table that represents the differences among species and an abundance matrix that represents the species' distribution among the communities. The final product is an ensemble of the multidimensional space that correlates the species with the communities. This method was published in [2004](https://www.sciencedirect.com/science/article/abs/pii/S0022519304000736). We want to see this with our data.
+
+```{r}
+psd5.dpcoa.unifrac <- ordinate(psd5, method = "DPCoA", distance = "dpcoa") # we ordinate once again
+evals <- psd5.dpcoa.unifrac$eig # we extract the eigenvalues
+pord3 <- plot_ordination(psd5, psd5.dpcoa.unifrac, color = "species", shape = "geo_loc_name") + #the plot
+  labs(col = "Species") +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  scale_color_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f")) + 
+  scale_fill_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f")) +
+  geom_point(size=4)
+pord3
+```
+
+Now, we wish to explore the multidimensional scaling using the t-SNE or the t-Distributed Stochastic Neighbor Embedding methods. *t-SNE* is different from other methods since it emphasizes in local distances rather than global ones, generating a bigger resolution o separation between the samples in this way.
+
+```{r}
+library(tsnemicrobiota)
+# we are directly applying the method, we must account for the distance, the majority of arguments I don't understand
+tsne_res <- tsne_phyloseq(psd5, distance= "dpcoa", perplexity = 8, verbose=0, rng_seed = 3901)
+
+# Graph
+pord4 <- plot_tsne_phyloseq(psd5, tsne_res, color = "species", shape = "geo_loc_name") +
+  geom_point(size=4) +
+  scale_color_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f")) + 
+  scale_fill_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f"))
+
+grid.arrange(pord3, pord4)
+```
+
+Both graphs use different methods but the same distance measure. The results are similar, however, the grouping of the samples lie in different arrangements. We may also visualize these measurements with sample density in sapce.
+
+```{r}
+library(Rtsne)
+# declaring the methods we'll be using
+method <- "tsne"
+trans <- "hellinger"
+distance <- "euclidean"
+
+# distance matrix
+# it takes a phyloseq object and then transforms it using the stated method, can be any  from the vegan::decostand 
+psd5 <- microbiome::transform(psd5, trans)
+
+# we calculate similarity
+dm <- vegdist(otu_table(psd5), distance)
+
+# t-SNE scaling method
+tsne_out <- Rtsne(dm, dims = 2, perplexity = 8) # the scaling with the t-SNE
+proj <- tsne_out$Y #don't really get what they're extracting
+rownames(proj) <- rownames(otu_table(psd5)) # row names assigning
+data.frame(proj) -> proj #making a data frame
+proj$species <- sample_data(psd5)[,11]# extracting species from the object
+
+pland <- plot_landscape(proj[,1:2], legend = T, size = 4, method = "t-SNE") # plotting the object (can be phyloseq or a matrix)
+print(pland)
+```
+
+# Visualization and abundance analysis
+
+## Stacked bar graph
+
+We can get a general idea of our samples' composition via the use of a stacked bar graph. There are many ways in which we can create said graphs, nonetheless, we'll be using the package made by an ex-member from the authors' lab since it can group the samples *hierarchical clustering* as well as other useful tools.
+
+```{r, warning=FALSE}
+# We'll be using the top 15 most abundant taxa
+# the function subsets the data to obtain the n most abundant taxa, can be relative or absolute counts.
+top15 <- get_top_taxa(physeq_obj = psd5, n = 15, relative = T,
+                       discard_other = T, other_label = "Other")
+
+# Since we don't have a fully species resolution for each of the taxa, we generate labels composed of different taxonomic ranges for the graph
+top15 <- name_taxa(top15, label = "", species = F, other_label = "Other")
+
+# plotting
+fantaxtic_bar(top15, color_by = "Family", label_by = "Genus", facet_by = NULL, grid_by = NULL, other_color = "Grey") -> ptop15
+
+ptop15
+```
+
+We can have a general idea of the composition of the samples jut by looking at the graph above, but we can subset the samples and data into each of the whales. The function `fantaxtic_bar` offers the possibility of separating the graph with the arguments `facet_by` and `grid_by`.
+
+```{r, warning=FALSE}
+fantaxtic_bar(top15, color_by = "Family", label_by = "Genus", facet_by = "species", grid_by = NULL, other_color = "Grey") -> ptop15.2
+
+ptop15.2
+```
+
+## Different abundace visualization
+
+Now we may see and use other tools that allow us to examine the composition of the microbial communities. The package `ampvis2`, which was developed by Mads Albertsen and Kasper Skytte Andersen, makes this examination possible. First of all, we transform the `phyloseq` object which we have worked with up until now into an `ampvis2` object.
+
+```{r}
+library(ampvis2)
+
+# We need to extract the read count table and the taxonomy table from our psd5 object 
+# We generate a new object in order to avoid modifying the original object 
+
+obj <- psd5
+
+# we tranbspose the otu_table
+t(otu_table(obj)) -> otu_table(obj)
+
+# Extract the tables 
+otutable <- data.frame(OTU = rownames(phyloseq::otu_table(obj)@.Data),
+                       phyloseq::otu_table(obj)@.Data,
+                       phyloseq::tax_table(obj)@.Data,
+                       check.names = FALSE)
+
+# get the metadata from the object
+metadata <- data.frame(phyloseq::sample_data(obj), 
+                       check.names = FALSE)
+
+# ampvis2 requieres 1.- for the taxomonic ranges to be seven and go from Kingdom to Species and 2.- the first column of the metadata to be the id of each sample 
+# We now duplicate the genus column and we change the name to species 
+otutable$Species = otutable$Genus
+
+# Rearrange the metadata
+metadata <- metadata[,c("run","sample_ID","bioproject_accession","study","biosample_accession","experiment","SRA_Sample","geo_loc_name","collection_date","sample_type","species","common_name","AvgSpotLen")]
+
+# We create the ampvis object
+av2 <- amp_load(otutable, metadata)
+```
+
+Now let us have a look at the community structure using *rank abundance curves*.
+
+```{r}
+amp_rankabundance(av2, group_by = "species")
+```
+
+The graph shows us the increment of cumulative abundance reads as we sum the taxa from bigger to lower abundance (*Rank abundnace*). The important thing to notice is the curve. A curve that peaks rapidly indicate that the communities are dominated by few taxa_; in the other hand, when the peak is slow just like in the observed data, the most abundant taxa onl represent about 25% of the cumulative reads.
+
+We'll now visualize which taxa correspond to the 25%. For this prupose, we'll be using the function `amp_heatmap`.
+
+```{r}
+amp_heatmap(av2, 
+            group_by = "species", 
+            facet_by = "geo_loc_name", 
+            plot_values = TRUE,
+            tax_show = 20,
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            plot_colorscale = "sqrt",
+            plot_legendbreaks = c(1, 5, 10))
+```
+
+*Tenacibalum* seems to be the most abundant genus for most of the samples, except *Balaenoptera physalus* and *Megaptera novaeangliae*, whose most abundant microorganism appears to be *Stenotrophomonas*. Apparently these data seems to be within the current literature. 
+
+We'll also use a boxplot visualization for better understanding.
+
+```{r}
+amp_boxplot(av2,
+            group_by = "species",
+            tax_show = 20,
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            adjust_zero = T,
+            plot_log = T) +
+  scale_color_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f")) + 
+  scale_fill_manual(values = c("#a6cee3", "#b2df8a", "#fdbf6f"))
+```
+
+Now, we can see if any of these microorganisms are shared between the samples. For this purpose we must calculate the core microbiome or the portion of the shared taxa between a certain percentage threshold of the samples and the in-sample prevalence.
+
+**This doesn't really work, nor should it return the image presented in the original work.**
+Most probably the final plot was with another function, since `amp_core` doesn't even have the possibility of using the argument `tax_aggregate`.
+```
+amp_core(av2, 
+         tax_aggregate = "Family",
+         group_by = "Sample",
+         abund_thrh = 0.5)
+```
+
+Visualize with a Venn diagram.
+
+```{r}
+amp_venn(av2, group_by = "species", cut_a = 0, cut_f = 50, text_size = 3)
+```
+
+## Microorganism differential abundance analysis
+
+Up until now, we have mostly seen exploratory analysis and some statistical tests for alpha and beta diversities, nut there are many times in which we want to determine exactly how much and which taxa is more represented in a condition versus another one. The process is analog to the gene differential expression in transcriptomics, e.g.,RNA-seq. The resemblance is such that we use one of the most widely used packages in transcriptomic, DESeq2. Now, our samples were sequenced at the same time and an effort was made for them to have a uniform depth between all samples. In practice this is not the case most of the times, so most often than not we must fix two situations when in the context of differential abundance analysis. The first is the unequal size of the samples (number of reads) and the data variability correlation to the mean of them. For this last situation, we can make use of a transformation called *Variance Stabilizing Transformation*; this transformation has as objective to find a function $f$ that will be applied to the read counts, so that in the new values $y=f(x)$, the variability gives and don't relate to it's mean values.
+
+We start off by transforming the data.
+
+
+```{r}
+# We create a DESeq2 object with the function `phyloseq_to_deseq2`
+diagdds <- phyloseq_to_deseq2(psd5, ~species)
+
+# We calculate the size factors as part of the normalization of the samples
+# calculate geometric means prior to estimate size factors
+gm_mean <- function(x, na.rm=TRUE){
+    exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+geoMeans <- apply(counts(diagdds), 1, gm_mean)
+diagdds <- estimateSizeFactors(diagdds, geoMeans = geoMeans)
+
+# Normalizamos y realizamos el test paramétrico de Wald para determinar taxa diferencialmente abundante.
+diagdds <- DESeq(diagdds, test="Wald", fitType="local")
+```
+
+
+
+
+
+
+
+
+
+
+
 
